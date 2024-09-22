@@ -1,3 +1,7 @@
+Forked to add hellish post-processing:
+
+https://github.com/user-attachments/assets/f88813e9-8979-49a9-a81b-fa31e717dab4
+
 [![Rust](https://github.com/qhdwight/bevy_fps_controller/actions/workflows/rust.yml/badge.svg)](https://github.com/qhdwight/bevy_fps_controller/actions/workflows/rust.yml)
 [![crates.io](https://img.shields.io/crates/v/bevy_fps_controller)](https://crates.io/crates/bevy_fps_controller)
 
