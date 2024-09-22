@@ -2,34 +2,62 @@
 
 @group(0) @binding(0) var screen_texture: texture_2d<f32>;
 @group(0) @binding(1) var texture_sampler: sampler;
+
 struct PostProcessSettings {
-    intensity: f32,
-#ifdef SIXTEEN_BYTE_ALIGNMENT
-    _webgl2_padding: vec3<f32>
-#endif
+    pixel_size: f32,
+    edge_threshold: f32,
+    color_depth: f32,
+    effect_strength: f32,
 }
 @group(0) @binding(2) var<uniform> settings: PostProcessSettings;
 
+fn pixelate(uv: vec2<f32>) -> vec2<f32> {
+    let pixel_count = max(settings.pixel_size, 1.0);
+    return floor(uv * pixel_count) / pixel_count;
+}
+
+fn detect_edges(uv: vec2<f32>) -> f32 {
+    let offset = 1.0 / vec2<f32>(textureDimensions(screen_texture));
+
+    let c00 = textureSample(screen_texture, texture_sampler, uv + vec2(-1.0, -1.0) * offset).rgb;
+    let c10 = textureSample(screen_texture, texture_sampler, uv + vec2( 0.0, -1.0) * offset).rgb;
+    let c20 = textureSample(screen_texture, texture_sampler, uv + vec2( 1.0, -1.0) * offset).rgb;
+    let c01 = textureSample(screen_texture, texture_sampler, uv + vec2(-1.0,  0.0) * offset).rgb;
+    let c21 = textureSample(screen_texture, texture_sampler, uv + vec2( 1.0,  0.0) * offset).rgb;
+    let c02 = textureSample(screen_texture, texture_sampler, uv + vec2(-1.0,  1.0) * offset).rgb;
+    let c12 = textureSample(screen_texture, texture_sampler, uv + vec2( 0.0,  1.0) * offset).rgb;
+    let c22 = textureSample(screen_texture, texture_sampler, uv + vec2( 1.0,  1.0) * offset).rgb;
+
+    let horizontal = -c00 - 2.0*c10 - c20 + c02 + 2.0*c12 + c22;
+    let vertical = -c00 - 2.0*c01 - c02 + c20 + 2.0*c21 + c22;
+
+    return length(horizontal) + length(vertical);
+}
+
+fn quantize_and_dither(color: vec3<f32>, uv: vec2<f32>) -> vec3<f32> {
+    let color_depth = max(settings.color_depth, 2.0);
+
+    // Simple dithering pattern using fract
+    let x = fract(uv.x * f32(textureDimensions(screen_texture).x));
+    let y = fract(uv.y * f32(textureDimensions(screen_texture).y));
+    let dither_value = (fract(x * 0.375 + y * 0.75 + 0.8) * 2.0 - 1.0) / color_depth;
+
+    return floor((color + vec3(dither_value)) * color_depth) / (color_depth - 1.0);
+}
+
 @fragment
 fn fragment(in: FullscreenVertexOutput) -> @location(0) vec4<f32> {
-    let offset_strength = settings.intensity;
+    let original_color = textureSample(screen_texture, texture_sampler, in.uv).rgb;
+    let pixelated_uv = pixelate(in.uv);
+    var color = textureSample(screen_texture, texture_sampler, pixelated_uv).rgb;
 
-    let uv = in.uv;
+    let edge = detect_edges(pixelated_uv);
+    color = mix(color, vec3(0.0), smoothstep(0.0, settings.edge_threshold, edge) * 0.5);
 
-    // Sample the texture three times with offsets
-    let color_r = textureSample(screen_texture, texture_sampler, uv + vec2<f32>(offset_strength, -offset_strength)).r;
-    let color_g = textureSample(screen_texture, texture_sampler, uv + vec2<f32>(-offset_strength, 0.0)).g;
-    let color_b = textureSample(screen_texture, texture_sampler, uv + vec2<f32>(0.0, offset_strength)).b;
+    color = quantize_and_dither(color, in.uv);
 
-    // Combine the color channels
-    let final_color = vec3<f32>(color_r, color_g, color_b);
+    // Blend the processed color with the original based on effect_strength
+    color = mix(original_color, color, settings.effect_strength);
 
-    // Ensure we're not exceeding the original brightness
-    let original = textureSample(screen_texture, texture_sampler, uv).rgb;
-    let max_component = max(max(original.r, original.g), original.b);
-
-    // Normalize the final color to match the original brightness
-    let normalized_color = final_color * (max_component / max(max(final_color.r, final_color.g), final_color.b));
-
-    return vec4<f32>(normalized_color, 1.0);
+    return vec4(color, 1.0);
 }

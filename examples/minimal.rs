@@ -1,4 +1,5 @@
 use bevy::{
+    color::palettes::css::RED,
     core_pipeline::{
         core_3d::graph::{Core3d, Node3d},
         fullscreen_vertex_shader::fullscreen_shader_vertex_state,
@@ -7,6 +8,7 @@ use bevy::{
     gltf::*,
     prelude::*,
     render::{
+        camera::Exposure,
         extract_component::{
             ComponentUniforms, DynamicUniformIndex, ExtractComponent, ExtractComponentPlugin,
             UniformComponentPlugin,
@@ -38,9 +40,10 @@ struct MainScene {
 // Add these structs and implementations
 #[derive(Component, Default, Clone, Copy, ExtractComponent, ShaderType)]
 struct PostProcessSettings {
-    intensity: f32,
-    #[cfg(feature = "webgl2")]
-    _webgl2_padding: Vec3,
+    pixel_size: f32,
+    edge_threshold: f32,
+    color_depth: f32,
+    effect_strength: f32,
 }
 
 struct PostProcessPlugin;
@@ -204,21 +207,13 @@ impl FromWorld for PostProcessPipeline {
     }
 }
 
-// Add this function to update the post-processing settings
-fn update_post_process_settings(mut query: Query<&mut PostProcessSettings>, time: Res<Time>) {
-    for mut settings in &mut query {
-        let intensity = (time.elapsed_seconds().sin() * 0.5 + 0.5) * 0.015;
-        settings.intensity = intensity;
-    }
-}
-
 fn main() {
     App::new()
         .insert_resource(AmbientLight {
             color: Color::WHITE,
-            brightness: 10000.0,
+            brightness: 100.0,
         })
-        .insert_resource(ClearColor(Color::linear_rgb(0.83, 0.96, 0.96)))
+        .insert_resource(ClearColor(Color::linear_rgb(0.03, 0.0, 0.0)))
         .add_plugins(DefaultPlugins)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default())
         .add_plugins(FpsControllerPlugin)
@@ -226,13 +221,7 @@ fn main() {
         .add_systems(Startup, setup)
         .add_systems(
             Update,
-            (
-                manage_cursor,
-                scene_colliders,
-                display_text,
-                respawn,
-                update_post_process_settings,
-            ),
+            (manage_cursor, scene_colliders, display_text, respawn),
         )
         .run();
 }
@@ -244,12 +233,26 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>, assets: Res<Ass
     commands.spawn(DirectionalLightBundle {
         directional_light: DirectionalLight {
             illuminance: light_consts::lux::FULL_DAYLIGHT,
+            color: LinearRgba::RED.into(),
             shadows_enabled: true,
             ..default()
         },
         transform: Transform::from_xyz(4.0, 7.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
+
+    // commands.spawn(PointLightBundle {
+    //     point_light: PointLight {
+    //         intensity: 1000.0,
+    //         range: 20.0,
+    //         radius: 10.0,
+    //         color: LinearRgba::RED.into(),
+    //         shadows_enabled: true,
+    //         ..default()
+    //     },
+    //     transform: Transform::from_xyz(0.0, 5.0, 0.0),
+    //     ..default()
+    // });
 
     let height = 3.0;
     let logical_entity = commands
@@ -290,6 +293,7 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>, assets: Res<Ass
 
     commands.spawn((
         Camera3dBundle {
+            exposure: Exposure::SUNLIGHT,
             projection: Projection::Perspective(PerspectiveProjection {
                 fov: TAU / 5.0,
                 ..default()
@@ -298,8 +302,10 @@ fn setup(mut commands: Commands, mut window: Query<&mut Window>, assets: Res<Ass
         },
         RenderPlayer { logical_entity },
         PostProcessSettings {
-            intensity: 0.02,
-            ..default()
+            pixel_size: 256.,     // Smaller value for less pixelation
+            edge_threshold: 0.5,  // Higher value for less pronounced edges
+            color_depth: 32.0,    // Higher value for more colors
+            effect_strength: 1.0, // Adjust this to blend with the original image
         },
     ));
 
